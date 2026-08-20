@@ -1,5 +1,5 @@
 {
-  "name": "mcp-pii-shield",
+  "name": "@thegeekybeng/mcp-pii-shield",
   "version": "1.0.0",
   "description": "PII Shield Database MCP Server",
   "main": "dist/index.js",
@@ -15,6 +15,9 @@
     "url": "https://github.com/thegeekybeng/mcp-pii-shield/issues"
   },
   "homepage": "https://github.com/thegeekybeng/mcp-pii-shield#readme",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
