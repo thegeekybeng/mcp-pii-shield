@@ -65,12 +65,74 @@ docker compose up -d --build
 ```
 This maps host port `3088` to the container's internal port `3000`, running the SSE server automatically.
 
+### 4. Direct Execution (NPX)
+You can run the server instantly over Stdio transport without downloading the code manually:
+```bash
+npx -y mcp-pii-shield --db-uri "postgresql://username:password@localhost:5432/your_database"
+```
+Or run the server over SSE transport:
+```bash
+npx -y mcp-pii-shield --sse --port 3000 --db-uri "postgresql://username:password@localhost:5432/your_database" --api-key "your_secret_key"
+```
+
 ---
 
-## Remote Client Integration
+## Client Integration
 
-### VS Code (Cline / Roo Code)
-Add the SSE transport configuration to your settings JSON:
+### A. Local Client Integration (via NPX over Stdio)
+
+Configure your local AI client to launch the server directly using `npx`.
+
+#### **Claude Desktop (`config.json`)**
+Add the following block to your `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+```json
+{
+  "mcpServers": {
+    "pc2e-pii-shield": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-pii-shield",
+        "--db-uri",
+        "postgresql://username:password@localhost:5432/your_database"
+      ]
+    }
+  }
+}
+```
+
+#### **Cursor (Settings → Features → MCP)**
+1. Click **+ Add New MCP Server**.
+2. Set **Name** to `pc2e-pii-shield`.
+3. Set **Type** to `command`.
+4. Set **Command** to:
+   ```text
+   npx -y mcp-pii-shield --db-uri "postgresql://username:password@localhost:5432/your_database"
+   ```
+
+#### **VS Code (Cline / Roo Code)**
+Add the following to your client settings JSON:
+```json
+{
+  "mcpServers": {
+    "pc2e-pii-shield": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-pii-shield",
+        "--db-uri",
+        "postgresql://username:password@localhost:5432/your_database"
+      ]
+    }
+  }
+}
+```
+
+### B. Remote Client Integration (via HTTPS over SSE)
+
+If you are connecting to a hosted server (e.g., your public NAS instance), connect via the SSE transport URL.
+
+#### **VS Code (Cline / Roo Code)**
 ```json
 {
   "mcpServers": {
@@ -81,11 +143,14 @@ Add the SSE transport configuration to your settings JSON:
 }
 ```
 
-### Cursor
-Add a new MCP server in Cursor Settings under Features:
-*   **Name:** `pc2e-pii-shield`
-*   **Type:** `SSE`
-*   **URL:** `https://pii-shield.thegeekybeng.com/sse?api_key=your_api_key_here`
+#### **Cursor**
+1. Click **+ Add New MCP Server**.
+2. Set **Name** to `pc2e-pii-shield`.
+3. Set **Type** to `SSE`.
+4. Set **URL** to:
+   ```text
+   https://pii-shield.thegeekybeng.com/sse?api_key=your_api_key_here
+   ```
 
 ---
 
