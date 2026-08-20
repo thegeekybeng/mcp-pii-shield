@@ -1,9 +1,11 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { TokenCache } from './cache.js';
 import { MaskingEngine } from './masking.js';
 import { executeQuery, initPool } from './db.js';
+import express from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -12,6 +14,9 @@ const args = process.argv.slice(2);
 let dbUri = process.env.PGURI || '';
 let rosterPath = process.env.ROSTER_PATH || './entityRoster.json';
 let ttlSeconds = parseInt(process.env.CACHE_TTL_SEC || '1800', 10);
+let isSse = process.env.TRANSPORT === 'sse';
+let port = parseInt(process.env.PORT || '3000', 10);
+let apiKey = process.env.MCP_API_KEY || '';
 
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--db-uri' && args[i + 1]) {
@@ -22,6 +27,14 @@ for (let i = 0; i < args.length; i++) {
     i++;
   } else if (args[i] === '--ttl' && args[i + 1]) {
     ttlSeconds = parseInt(args[i + 1], 10);
+    i++;
+  } else if (args[i] === '--sse') {
+    isSse = true;
+  } else if (args[i] === '--port' && args[i + 1]) {
+    port = parseInt(args[i + 1], 10);
+    i++;
+  } else if (args[i] === '--api-key' && args[i + 1]) {
+    apiKey = args[i + 1];
     i++;
   }
 }
@@ -136,14 +149,55 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 });
 
 async function main() {
-  // Only connect to transport if running directly (prevents hanging in tests)
-  if (process.env.NODE_ENV !== 'test') {
+  if (process.env.NODE_ENV === 'test') {
+    return;
+  }
+
+  if (isSse) {
+    // Start SSE server
+    const app = express();
+    app.use(express.json());
+
+    // API Key Authentication Middleware
+    if (apiKey) {
+      app.use((req, res, next) => {
+        const clientKey = req.headers['x-api-key'] || req.query['api_key'];
+        if (clientKey !== apiKey) {
+          res.status(401).send('Unauthorized: Invalid API Key');
+          return;
+        }
+        next();
+      });
+    }
+
+    let sseTransport: SSEServerTransport | null = null;
+
+    app.get('/sse', async (req, res) => {
+      console.log('New client connection requested on /sse');
+      sseTransport = new SSEServerTransport('/message', res);
+      await server.connect(sseTransport);
+    });
+
+    app.post('/message', async (req, res) => {
+      if (sseTransport) {
+        await sseTransport.handlePostMessage(req, res);
+      } else {
+        res.status(400).send('No active SSE session');
+      }
+    });
+
+    app.listen(port, () => {
+      console.log(`PII Shield MCP Server listening on port ${port} over SSE transport.`);
+    });
+  } else {
+    // Start Stdio server
     const transport = new StdioServerTransport();
     await server.connect(transport);
+    console.error('PII Shield MCP Server running over Stdio transport.');
   }
 }
 
 main().catch(err => {
-  console.error('Failed to run MCP server stdio transport: ', err);
+  console.error('Failed to run MCP server transport: ', err);
   process.exit(1);
 });
