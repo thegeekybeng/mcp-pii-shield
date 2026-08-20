@@ -1,0 +1,149 @@
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { TokenCache } from './cache.js';
+import { MaskingEngine } from './masking.js';
+import { executeQuery, initPool } from './db.js';
+import * as fs from 'fs';
+import * as path from 'path';
+
+// Parse command line arguments
+const args = process.argv.slice(2);
+let dbUri = process.env.PGURI || '';
+let rosterPath = process.env.ROSTER_PATH || './entityRoster.json';
+let ttlSeconds = parseInt(process.env.CACHE_TTL_SEC || '1800', 10);
+
+for (let i = 0; i < args.length; i++) {
+  if (args[i] === '--db-uri' && args[i + 1]) {
+    dbUri = args[i + 1];
+    i++;
+  } else if (args[i] === '--roster-path' && args[i + 1]) {
+    rosterPath = args[i + 1];
+    i++;
+  } else if (args[i] === '--ttl' && args[i + 1]) {
+    ttlSeconds = parseInt(args[i + 1], 10);
+    i++;
+  }
+}
+
+// Initialize components
+if (dbUri) {
+  initPool({ connectionString: dbUri });
+}
+
+const cache = new TokenCache(ttlSeconds);
+let initialRoster: string[] = [];
+
+try {
+  const resolvedPath = path.resolve(rosterPath);
+  if (fs.existsSync(resolvedPath)) {
+    initialRoster = JSON.parse(fs.readFileSync(resolvedPath, 'utf-8'));
+  }
+} catch (err) {
+  console.error('Warning: Failed to load entity roster from ' + rosterPath, err);
+}
+
+const engine = new MaskingEngine(cache, initialRoster);
+
+// Create MCP Server
+const server = new Server(
+  { name: 'pii-shield-db', version: '1.0.0' },
+  { capabilities: { tools: {} } }
+);
+
+server.setRequestHandler(ListToolsRequestSchema, async () => {
+  return {
+    tools: [
+      {
+        name: 'run_secure_query',
+        description: 'Execute a read-only SELECT database query. All PII values (names, emails, phones, NRIC/IDs) in the results will be automatically masked before being returned.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            sql_query: {
+              type: 'string',
+              description: 'The read-only SQL SELECT query to run (e.g. SELECT name, email FROM contacts LIMIT 5)'
+            }
+          },
+          required: ['sql_query']
+        }
+      },
+      {
+        name: 'unmask_text',
+        description: 'Restore the original raw PII values in a text payload by replacing placeholders (e.g. __PERSON_A__, __EMAIL_1__) with their original values cached during this session.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            masked_text: {
+              type: 'string',
+              description: 'The text containing placeholders to be restored.'
+            }
+          },
+          required: ['masked_text']
+        }
+      },
+      {
+        name: 'add_to_roster',
+        description: 'Register new names to the active regex scan roster for local name-matching detection.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            names: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'An array of names to be dynamically added to the scanner roster.'
+            }
+          },
+          required: ['names']
+        }
+      }
+    ]
+  };
+});
+
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  const { name, arguments: args } = request.params;
+
+  try {
+    if (name === 'run_secure_query') {
+      const sql = String(args?.sql_query || '');
+      const rawRows = await executeQuery(sql);
+      const maskedRows = rawRows.map(row => engine.maskObject(row));
+      return {
+        content: [{ type: 'text', text: JSON.stringify(maskedRows, null, 2) }]
+      };
+    } else if (name === 'unmask_text') {
+      const maskedText = String(args?.masked_text || '');
+      const restoredText = engine.unmask(maskedText);
+      return {
+        content: [{ type: 'text', text: restoredText }]
+      };
+    } else if (name === 'add_to_roster') {
+      const names = Array.isArray(args?.names) ? args.names : [];
+      engine.addRosterNames(names);
+      return {
+        content: [{ type: 'text', text: `Successfully added ${names.length} names to active roster.` }]
+      };
+    } else {
+      throw new Error('Unknown tool: ' + name);
+    }
+  } catch (err: any) {
+    return {
+      isError: true,
+      content: [{ type: 'text', text: err.message || 'Unknown execution error' }]
+    };
+  }
+});
+
+async function main() {
+  // Only connect to transport if running directly (prevents hanging in tests)
+  if (process.env.NODE_ENV !== 'test') {
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+  }
+}
+
+main().catch(err => {
+  console.error('Failed to run MCP server stdio transport: ', err);
+  process.exit(1);
+});
