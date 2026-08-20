@@ -5,7 +5,7 @@ services:
     build: .
     container_name: mcp-pii-shield
     ports:
-      - "3000:3000"
+      - "3088:3000"
     environment:
       - TRANSPORT=sse
       - PORT=3000
