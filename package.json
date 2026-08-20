@@ -7,6 +7,14 @@
     "mcp-pii-shield": "./dist/index.js"
   },
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/thegeekybeng/mcp-pii-shield.git"
+  },
+  "bugs": {
+    "url": "https://github.com/thegeekybeng/mcp-pii-shield/issues"
+  },
+  "homepage": "https://github.com/thegeekybeng/mcp-pii-shield#readme",
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
