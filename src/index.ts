@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
@@ -57,6 +58,15 @@ try {
 }
 
 const engine = new MaskingEngine(cache, initialRoster);
+
+// Global metrics and transport mapping for SSE sessions
+const activeTransports = new Map<string, SSEServerTransport>();
+const metrics = {
+  totalConnections: 0,
+  queriesExecuted: 0,
+  textUnmasked: 0,
+  uniqueIPs: new Set<string>()
+};
 
 // Create MCP Server
 const server = new Server(
@@ -119,6 +129,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   try {
     if (name === 'run_secure_query') {
+      metrics.queriesExecuted++;
       const sql = String(args?.sql_query || '');
       const rawRows = await executeQuery(sql);
       const maskedRows = rawRows.map(row => engine.maskObject(row));
@@ -126,6 +137,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         content: [{ type: 'text', text: JSON.stringify(maskedRows, null, 2) }]
       };
     } else if (name === 'unmask_text') {
+      metrics.textUnmasked++;
       const maskedText = String(args?.masked_text || '');
       const restoredText = engine.unmask(maskedText);
       return {
@@ -170,20 +182,44 @@ async function main() {
       });
     }
 
-    let sseTransport: SSEServerTransport | null = null;
-
     app.get('/sse', async (req, res) => {
-      console.log('New client connection requested on /sse');
-      sseTransport = new SSEServerTransport('/message', res);
-      await server.connect(sseTransport);
+      const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
+      console.log(`New client connection requested on /sse from ${clientIp}`);
+
+      const transport = new SSEServerTransport('/message', res);
+      await server.connect(transport);
+
+      const sessionId = transport.sessionId;
+      activeTransports.set(sessionId, transport);
+      metrics.totalConnections++;
+      metrics.uniqueIPs.add(clientIp);
+
+      console.log(`Client session established: ${sessionId} (Active: ${activeTransports.size})`);
+
+      req.on('close', () => {
+        activeTransports.delete(sessionId);
+        console.log(`Client session disconnected: ${sessionId} (Active: ${activeTransports.size})`);
+      });
     });
 
     app.post('/message', async (req, res) => {
-      if (sseTransport) {
-        await sseTransport.handlePostMessage(req, res);
+      const sessionId = String(req.query.sessionId || '');
+      const transport = activeTransports.get(sessionId);
+      if (transport) {
+        await transport.handlePostMessage(req, res);
       } else {
-        res.status(400).send('No active SSE session');
+        res.status(400).send('No active SSE session for this sessionId');
       }
+    });
+
+    app.get('/stats', (req, res) => {
+      res.json({
+        activeConnectionsCount: activeTransports.size,
+        totalConnectionsCount: metrics.totalConnections,
+        uniqueUsersCount: metrics.uniqueIPs.size,
+        queriesExecutedCount: metrics.queriesExecuted,
+        textUnmaskedCount: metrics.textUnmasked
+      });
     });
 
     app.listen(port, () => {

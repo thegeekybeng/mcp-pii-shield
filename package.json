@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "PII Shield Database MCP Server",
   "main": "dist/index.js",
+  "bin": {
+    "mcp-pii-shield": "./dist/index.js"
+  },
   "type": "module",
   "scripts": {
     "build": "tsc",
