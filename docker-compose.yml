@@ -14,6 +14,6 @@ services:
       - PGUSER=${PGUSER:-postgres}
       - PGPASSWORD=${PGPASSWORD:-change_me}
       - PGDATABASE=${PGDATABASE:-your_database}
-      - MCP_API_KEY=${MCP_API_KEY}
+      - MCP_API_KEY=${MCP_API_KEY:-}
       - ROSTER_PATH=${ROSTER_PATH:-./entityRoster.json}
     restart: always

@@ -1,5 +1,7 @@
 # pc2e-pii-shield
 
+[![M8ven Verified](https://m8ven.ai/badge/mcp/thegeekybeng-mcp-pii-shield-195wn?variant=verified)](https://m8ven.ai/ncp/thegeekybeng-mcp-pii-shield-195wn)
+
 A secure, production-grade Model Context Protocol (MCP) server providing read-only PostgreSQL query execution with automatic, client-side, and edge Personally Identifiable Information (PII) masking. It allows LLM agents (e.g., Cursor, Cline, Claude Code) to execute SQL queries on databases while ensuring strict compliance with GDPR, PDPA, and data privacy principles.
 
 Designed and engineered as a reusable security middleware product, this server intercepts database query results to prevent sensitive data egress.

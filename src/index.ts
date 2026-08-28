@@ -89,6 +89,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             }
           },
           required: ['sql_query']
+        },
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: true
         }
       },
       {
@@ -103,6 +109,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             }
           },
           required: ['masked_text']
+        },
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false
         }
       },
       {
@@ -118,6 +130,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             }
           },
           required: ['names']
+        },
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false
         }
       }
     ]
@@ -169,6 +187,32 @@ async function main() {
     // Start SSE server
     const app = express();
     app.use(express.json());
+
+    // DNS Rebinding Protection Middleware
+    const allowedHosts = new Set(['localhost', '127.0.0.1', '[::1]']);
+    const extraHosts = process.env.ALLOWED_HOSTS || '';
+    if (extraHosts) {
+      extraHosts.split(',').forEach(h => allowedHosts.add(h.trim().toLowerCase()));
+    }
+
+    app.use((req, res, next) => {
+      const hostHeader = req.headers.host;
+      if (!hostHeader) {
+        res.status(400).send('Bad Request: Missing Host header');
+        return;
+      }
+      const hostname = hostHeader.split(':')[0].toLowerCase();
+      if (allowedHosts.has(hostname) || allowedHosts.has(hostHeader.toLowerCase())) {
+        next();
+        return;
+      }
+      // If API key auth is active, it mitigates DNS rebinding since the key is required
+      if (apiKey) {
+        next();
+        return;
+      }
+      res.status(403).send('Forbidden: DNS Rebinding Protection. Configure ALLOWED_HOSTS if accessing remotely.');
+    });
 
     // API Key Authentication Middleware
     if (apiKey) {
